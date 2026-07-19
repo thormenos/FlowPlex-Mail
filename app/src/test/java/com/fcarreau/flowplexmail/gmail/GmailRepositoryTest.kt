@@ -7,10 +7,11 @@ import com.google.api.services.gmail.model.ListMessagesResponse
 import com.google.api.services.gmail.model.Message
 import com.google.api.services.gmail.model.MessagePart
 import com.google.api.services.gmail.model.MessagePartHeader
-import io.mockk.coVerify
+import io.mockk.Runs
+import io.mockk.coEvery
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
-import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -23,8 +24,10 @@ class GmailRepositoryTest {
     private val messages = mockk<Gmail.Users.Messages>()
     private val listRequest = mockk<Gmail.Users.Messages.List>()
     private val dao = mockk<MessageDao>(relaxed = true)
+    private val messageFetcher = mockk<GmailMessageFetcher>()
+    private val savedBatches = mutableListOf<List<MessageEntity>>()
 
-    private val repository = GmailRepository(gmail, dao)
+    private val repository = GmailRepository(gmail, dao, messageFetcher)
 
     init {
         every { gmail.users() } returns users
@@ -32,6 +35,7 @@ class GmailRepositoryTest {
         every { messages.list("me") } returns listRequest
         every { listRequest.setQ(any()) } returns listRequest
         every { listRequest.setMaxResults(any()) } returns listRequest
+        coEvery { dao.upsertAll(capture(savedBatches)) } just Runs
     }
 
     private fun headerMessage(id: String, headers: Map<String, String>) = Message()
@@ -40,21 +44,10 @@ class GmailRepositoryTest {
         .setInternalDate(1_000L)
         .setPayload(MessagePart().setHeaders(headers.map { (k, v) -> MessagePartHeader().setName(k).setValue(v) }))
 
-    private fun stubGet(id: String, result: Message) {
-        val getRequest = mockk<Gmail.Users.Messages.Get>()
-        every { messages.get("me", id) } returns getRequest
-        every { getRequest.setFormat(any()) } returns getRequest
-        every { getRequest.setMetadataHeaders(any()) } returns getRequest
-        every { getRequest.execute() } returns result
-    }
-
     @Test
     fun `sync recupere et classe les messages des 4 categories`() = runTest {
-        every { listRequest.execute() } returns ListMessagesResponse().setMessages(
-            listOf(Message().setId("m1")),
-        )
-        stubGet(
-            "m1",
+        every { listRequest.execute() } returns ListMessagesResponse().setMessages(listOf(Message().setId("m1")))
+        every { messageFetcher.fetchMessages(gmail, listOf("m1")) } returns listOf(
             headerMessage(
                 "m1",
                 mapOf("From" to "Boutique <boutique@exemple.com>", "Subject" to "Soldes", "List-Unsubscribe" to "<https://exemple.com/unsub>"),
@@ -63,46 +56,54 @@ class GmailRepositoryTest {
 
         repository.sync()
 
-        val captured = slot<List<MessageEntity>>()
-        coVerify { dao.upsertAll(capture(captured)) }
-
-        assertEquals(CLEANABLE_CATEGORIES.size, captured.captured.size)
-        assertEquals(CLEANABLE_CATEGORIES.toSet(), captured.captured.map { it.category }.toSet())
-        assertTrue(captured.captured.all { it.hasListUnsubscribe })
-        assertTrue(captured.captured.all { it.sender == "Boutique <boutique@exemple.com>" })
+        val allEntities = savedBatches.flatten()
+        assertEquals(CLEANABLE_CATEGORIES.size, allEntities.size)
+        assertEquals(CLEANABLE_CATEGORIES.toSet(), allEntities.map { it.category }.toSet())
+        assertTrue(allEntities.all { it.hasListUnsubscribe })
+        assertTrue(allEntities.all { it.sender == "Boutique <boutique@exemple.com>" })
+        assertTrue(allEntities.all { it.senderDomain == "exemple.com" })
     }
 
     @Test
-    fun `sync ignore un message dont la recuperation echoue sans interrompre les autres`() = runTest {
-        every { listRequest.execute() } returns ListMessagesResponse().setMessages(
-            listOf(Message().setId("bon"), Message().setId("casse")),
+    fun `sync sauvegarde chaque categorie des qu elle est prete plutot que d attendre la fin`() = runTest {
+        every { listRequest.execute() } returns ListMessagesResponse().setMessages(listOf(Message().setId("m1")))
+        every { messageFetcher.fetchMessages(gmail, listOf("m1")) } returns listOf(
+            headerMessage("m1", mapOf("From" to "a@b.com", "Subject" to "Test")),
         )
-        stubGet("bon", headerMessage("bon", mapOf("From" to "a@b.com", "Subject" to "Ok")))
-        val brokenGetRequest = mockk<Gmail.Users.Messages.Get>()
-        every { messages.get("me", "casse") } returns brokenGetRequest
-        every { brokenGetRequest.setFormat(any()) } returns brokenGetRequest
-        every { brokenGetRequest.setMetadataHeaders(any()) } returns brokenGetRequest
-        every { brokenGetRequest.execute() } throws RuntimeException("boom")
 
         repository.sync()
 
-        val captured = slot<List<MessageEntity>>()
-        coVerify { dao.upsertAll(capture(captured)) }
+        assertEquals(CLEANABLE_CATEGORIES.size, savedBatches.size)
+        assertTrue(savedBatches.all { it.size == 1 })
+    }
 
-        assertEquals(CLEANABLE_CATEGORIES.size, captured.captured.count { it.id == "bon" })
-        assertTrue(captured.captured.none { it.id == "casse" })
+    @Test
+    fun `sync ignore un message dont le mappage echoue sans interrompre les autres`() = runTest {
+        every { listRequest.execute() } returns ListMessagesResponse().setMessages(
+            listOf(Message().setId("bon"), Message().setId("casse")),
+        )
+        every { messageFetcher.fetchMessages(gmail, listOf("bon", "casse")) } returns listOf(
+            headerMessage("bon", mapOf("From" to "a@b.com", "Subject" to "Ok")),
+            Message(), // pas d'id -> le mappage plante, doit etre ignore sans tout casser
+        )
+
+        repository.sync()
+
+        val allEntities = savedBatches.flatten()
+        assertEquals(CLEANABLE_CATEGORIES.size, allEntities.count { it.id == "bon" })
+        assertTrue(allEntities.none { it.threadId == "thread-casse" })
     }
 
     @Test
     fun `sans List-Unsubscribe le message n est pas marque desabonnable`() = runTest {
         every { listRequest.execute() } returns ListMessagesResponse().setMessages(listOf(Message().setId("m2")))
-        stubGet("m2", headerMessage("m2", mapOf("From" to "a@b.com", "Subject" to "Facture")))
+        every { messageFetcher.fetchMessages(gmail, listOf("m2")) } returns listOf(
+            headerMessage("m2", mapOf("From" to "a@b.com", "Subject" to "Facture")),
+        )
 
         repository.sync()
 
-        val captured = slot<List<MessageEntity>>()
-        coVerify { dao.upsertAll(capture(captured)) }
-
-        assertTrue(captured.captured.all { !it.hasListUnsubscribe })
+        val allEntities = savedBatches.flatten()
+        assertTrue(allEntities.all { !it.hasListUnsubscribe })
     }
 }

@@ -3,6 +3,7 @@ package com.fcarreau.flowplexmail.gmail
 import com.fcarreau.flowplexmail.data.MessageDao
 import com.fcarreau.flowplexmail.data.MessageEntity
 import com.google.api.services.gmail.Gmail
+import com.google.api.services.gmail.model.Message
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -10,11 +11,20 @@ private const val MAX_RESULTS_PER_CATEGORY = 200L
 
 val CLEANABLE_CATEGORIES = listOf("promotions", "social", "updates", "forums")
 
-class GmailRepository(private val gmail: Gmail, private val dao: MessageDao) {
+class GmailRepository(
+    private val gmail: Gmail,
+    private val dao: MessageDao,
+    private val messageFetcher: GmailMessageFetcher = BatchGmailMessageFetcher(),
+) {
 
+    /** Synchronise catégorie par catégorie et sauvegarde chacune dès qu'elle est prête,
+     *  pour que l'interface affiche les résultats progressivement plutôt que d'attendre
+     *  que les 4 catégories soient toutes terminées. */
     suspend fun sync() = withContext(Dispatchers.IO) {
-        val entities = CLEANABLE_CATEGORIES.flatMap { category -> fetchCategory(category) }
-        dao.upsertAll(entities)
+        CLEANABLE_CATEGORIES.forEach { category ->
+            val entities = fetchCategory(category)
+            dao.upsertAll(entities)
+        }
     }
 
     private fun fetchCategory(category: String): List<MessageEntity> {
@@ -23,17 +33,13 @@ class GmailRepository(private val gmail: Gmail, private val dao: MessageDao) {
             .setMaxResults(MAX_RESULTS_PER_CATEGORY)
             .execute()
 
-        return listResponse.messages.orEmpty().mapNotNull { ref ->
-            runCatching { fetchMessage(category, ref.id) }.getOrNull()
+        val ids = listResponse.messages.orEmpty().map { it.id }
+        return messageFetcher.fetchMessages(gmail, ids).mapNotNull { message ->
+            runCatching { toEntity(category, message) }.getOrNull()
         }
     }
 
-    private fun fetchMessage(category: String, messageId: String): MessageEntity {
-        val message = gmail.users().messages().get("me", messageId)
-            .setFormat("metadata")
-            .setMetadataHeaders(listOf("From", "Subject", "Date", "List-Unsubscribe", "List-Unsubscribe-Post"))
-            .execute()
-
+    private fun toEntity(category: String, message: Message): MessageEntity {
         val headers = message.payload?.headers.orEmpty().associate { it.name to it.value }
         val fromHeader = headers["From"] ?: "(expéditeur inconnu)"
         val sender = parseSender(fromHeader)
