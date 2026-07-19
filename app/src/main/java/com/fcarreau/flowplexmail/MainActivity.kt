@@ -1,6 +1,7 @@
 package com.fcarreau.flowplexmail
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -89,6 +90,8 @@ private val CATEGORY_META = mapOf(
 )
 
 private data class CategoryMeta(val emoji: String, val label: String)
+
+private const val TAG = "FlowPlexMail"
 
 class MainActivity : ComponentActivity() {
 
@@ -191,7 +194,13 @@ class MainActivity : ComponentActivity() {
                                         if (sample == null) {
                                             Toast.makeText(this@MainActivity, "Aucun lien de désabonnement trouvé", Toast.LENGTH_SHORT).show()
                                         } else {
-                                            actionRepository().unsubscribeAndTrashDomain(category, d, sample)
+                                            val result = actionRepository().unsubscribeAndTrashDomain(category, d, sample)
+                                            val message = if (result.unsubscribed) {
+                                                "${result.trashedCount} emails supprimés, désabonnement effectué"
+                                            } else {
+                                                "${result.trashedCount} emails supprimés, mais le désabonnement a échoué (serveur injoignable)"
+                                            }
+                                            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 },
@@ -247,6 +256,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
+                Log.e(TAG, "fetchProfile a échoué", e)
                 errorText = "Erreur: ${e.message}"
             }
         }
@@ -266,6 +276,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
+                Log.e(TAG, "Action sur le message ${message.id} a échoué", e)
                 Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 processingMessageId = null
@@ -293,6 +304,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
+                Log.e(TAG, "Action groupée a échoué", e)
                 Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 isBulkProcessing = false
@@ -308,6 +320,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
+                Log.e(TAG, "Action sur le domaine $domain a échoué", e)
                 Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 processingDomain = null

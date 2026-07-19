@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 private const val GMAIL_SEARCH_PAGE_SIZE = 500L
 private const val GMAIL_BATCH_MODIFY_LIMIT = 1000
 
+data class DomainActionResult(val trashedCount: Int, val unsubscribed: Boolean)
+
 class MessageActionRepository(
     private val gmail: Gmail,
     private val dao: MessageDao,
@@ -63,14 +65,20 @@ class MessageActionRepository(
         ids.size
     }
 
-    /** Se désabonne une seule fois (via un message échantillon) puis jette tous les emails du domaine trouvés sur Gmail. */
-    suspend fun unsubscribeAndTrashDomain(category: String, domain: String, sample: MessageEntity): Int = withContext(Dispatchers.IO) {
-        performUnsubscribeAction(sample)
-        val ids = findAllMessageIds(category, domain)
-        trashIds(ids)
-        dao.markDomainTrashed(category, domain)
-        ids.size
-    }
+    /**
+     * Se désabonne une seule fois (via un message échantillon) puis jette tous les emails du
+     * domaine trouvés sur Gmail. Le serveur de désabonnement d'un tiers peut être injoignable
+     * (liste morte, timeout...) — dans ce cas on jette quand même les emails plutôt que de tout
+     * annuler, et on rapporte que le désabonnement lui-même n'a pas abouti.
+     */
+    suspend fun unsubscribeAndTrashDomain(category: String, domain: String, sample: MessageEntity): DomainActionResult =
+        withContext(Dispatchers.IO) {
+            val unsubscribed = runCatching { performUnsubscribeAction(sample) }.isSuccess
+            val ids = findAllMessageIds(category, domain)
+            trashIds(ids)
+            dao.markDomainTrashed(category, domain)
+            DomainActionResult(trashedCount = ids.size, unsubscribed = unsubscribed)
+        }
 
     private fun findAllMessageIds(category: String, domain: String): List<String> {
         val ids = mutableListOf<String>()

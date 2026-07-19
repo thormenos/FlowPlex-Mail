@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Certains liens de désabonnement fournis par des tiers utilisent encore http:// non
+  chiffré. On ne contrôle pas ces serveurs, donc on autorise le cleartext globalement
+  plutôt que de bloquer silencieusement le désabonnement (le reste de l'app — Gmail,
+  Drive, Google Sign-In — passe déjà par https:// uniquement).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

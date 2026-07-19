@@ -271,11 +271,27 @@ class MessageActionRepositoryTest {
         val captured = stubBatchModify()
         val sample = message(id = "sample", hasUnsub = true, unsubHeader = "<https://exemple.com/unsub>")
 
-        val count = repository.unsubscribeAndTrashDomain("promotions", "exemple.com", sample)
+        val result = repository.unsubscribeAndTrashDomain("promotions", "exemple.com", sample)
 
-        assertEquals(2, count)
+        assertEquals(2, result.trashedCount)
+        assertEquals(true, result.unsubscribed)
         verify(exactly = 1) { httpClient.get("https://exemple.com/unsub") }
         assertEquals(listOf("a", "b"), captured.captured.ids)
         coVerify { dao.markDomainTrashed("promotions", "exemple.com") }
+    }
+
+    @Test
+    fun `unsubscribeAndTrashDomain jette quand meme les emails si le serveur de desabonnement est injoignable`() = runTest {
+        every { httpClient.get(any()) } throws java.net.SocketTimeoutException("timeout")
+        stubList(listOf(listOf("a", "b", "c") to null))
+        val captured = stubBatchModify()
+        val sample = message(id = "sample", hasUnsub = true, unsubHeader = "<http://serveur-mort.example/unsub>")
+
+        val result = repository.unsubscribeAndTrashDomain("promotions", "serveur-mort.example", sample)
+
+        assertEquals(3, result.trashedCount)
+        assertEquals(false, result.unsubscribed)
+        assertEquals(listOf("a", "b", "c"), captured.captured.ids)
+        coVerify { dao.markDomainTrashed("promotions", "serveur-mort.example") }
     }
 }
