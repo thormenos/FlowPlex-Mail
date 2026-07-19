@@ -181,8 +181,20 @@ class MainActivity : ComponentActivity() {
                                 processingDomain = processingDomain,
                                 onBack = { closeCategory() },
                                 onOpenDomain = { d -> selectedIds = emptySet(); openDomain = d },
-                                onTrashGroup = { d -> performGroupAction(category, d) { list -> actionRepository().trashAll(list) } },
-                                onUnsubscribeGroup = { d -> performGroupAction(category, d) { list -> actionRepository().unsubscribeAll(list) } },
+                                onTrashGroup = { d ->
+                                    performDomainAction(d) { actionRepository().trashAllForDomain(category, d) }
+                                },
+                                onUnsubscribeGroup = { d ->
+                                    performDomainAction(d) {
+                                        val sample = messageDao.getPendingByCategoryAndDomain(category, d)
+                                            .firstOrNull { it.hasListUnsubscribe }
+                                        if (sample == null) {
+                                            Toast.makeText(this@MainActivity, "Aucun lien de désabonnement trouvé", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            actionRepository().unsubscribeAndTrashDomain(category, d, sample)
+                                        }
+                                    }
+                                },
                             )
                         }
 
@@ -288,12 +300,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun performGroupAction(category: String, domain: String, block: suspend (List<MessageEntity>) -> Unit) {
+    private fun performDomainAction(domain: String, block: suspend () -> Unit) {
         processingDomain = domain
         lifecycleScope.launch {
             try {
-                val messages = messageDao.getPendingByCategoryAndDomain(category, domain)
-                block(messages)
+                block()
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {

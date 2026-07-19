@@ -6,7 +6,7 @@ import com.google.api.services.gmail.Gmail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private const val MAX_RESULTS_PER_CATEGORY = 50L
+private const val MAX_RESULTS_PER_CATEGORY = 200L
 
 val CLEANABLE_CATEGORIES = listOf("promotions", "social", "updates", "forums")
 

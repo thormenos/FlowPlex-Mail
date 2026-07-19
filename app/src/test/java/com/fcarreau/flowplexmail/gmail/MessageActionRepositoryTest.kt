@@ -4,6 +4,7 @@ import com.fcarreau.flowplexmail.data.MessageDao
 import com.fcarreau.flowplexmail.data.MessageEntity
 import com.google.api.services.gmail.Gmail
 import com.google.api.services.gmail.model.BatchModifyMessagesRequest
+import com.google.api.services.gmail.model.ListMessagesResponse
 import com.google.api.services.gmail.model.Message as GmailApiMessage
 import io.mockk.coVerify
 import io.mockk.every
@@ -55,6 +56,19 @@ class MessageActionRepositoryTest {
         every { messages.batchModify("me", capture(captured)) } returns batchRequest
         every { batchRequest.execute() } returns null
         return captured
+    }
+
+    /** Simule la pagination Gmail : une entrée de [pages] = (ids de cette page, jeton de la page suivante ou null). */
+    private fun stubList(pages: List<Pair<List<String>, String?>>) {
+        val listRequest = mockk<Gmail.Users.Messages.List>()
+        every { messages.list("me") } returns listRequest
+        every { listRequest.setQ(any()) } returns listRequest
+        every { listRequest.setMaxResults(any()) } returns listRequest
+        every { listRequest.setPageToken(any()) } returns listRequest
+        val responses = pages.map { (ids, nextToken) ->
+            ListMessagesResponse().setMessages(ids.map { GmailApiMessage().setId(it) }).setNextPageToken(nextToken)
+        }
+        every { listRequest.execute() } returnsMany responses
     }
 
     @Test
@@ -194,5 +208,74 @@ class MessageActionRepositoryTest {
         assertEquals(1, successCount)
         coVerify { dao.updateStatus("ok", "trashed") }
         coVerify(exactly = 0) { dao.updateStatus("casse", any()) }
+    }
+
+    @Test
+    fun `trashAllForDomain recherche tous les emails du domaine puis les jette et met a jour le cache`() = runTest {
+        stubList(listOf(listOf("a", "b", "c") to null))
+        val captured = stubBatchModify()
+
+        val count = repository.trashAllForDomain("promotions", "exemple.com")
+
+        assertEquals(3, count)
+        assertEquals(listOf("a", "b", "c"), captured.captured.ids)
+        coVerify { dao.markDomainTrashed("promotions", "exemple.com") }
+    }
+
+    @Test
+    fun `trashAllForDomain parcourt toutes les pages Gmail avant de jeter`() = runTest {
+        stubList(
+            listOf(
+                listOf("a", "b") to "token-1",
+                listOf("c") to null,
+            ),
+        )
+        val captured = stubBatchModify()
+
+        val count = repository.trashAllForDomain("promotions", "exemple.com")
+
+        assertEquals(3, count)
+        assertEquals(listOf("a", "b", "c"), captured.captured.ids)
+    }
+
+    @Test
+    fun `trashAllForDomain decoupe en plusieurs appels batchModify au-dela de la limite Gmail`() = runTest {
+        val manyIds = (1..1500).map { "id-$it" }
+        stubList(listOf(manyIds to null))
+        val batchRequest = mockk<Gmail.Users.Messages.BatchModify>()
+        val capturedRequests = mutableListOf<BatchModifyMessagesRequest>()
+        every { messages.batchModify("me", capture(capturedRequests)) } returns batchRequest
+        every { batchRequest.execute() } returns null
+
+        val count = repository.trashAllForDomain("promotions", "exemple.com")
+
+        assertEquals(1500, count)
+        verify(exactly = 2) { messages.batchModify(any(), any()) }
+        assertEquals(1000, capturedRequests[0].ids.size)
+        assertEquals(500, capturedRequests[1].ids.size)
+    }
+
+    @Test
+    fun `trashAllForDomain sans resultat n appelle pas batchModify`() = runTest {
+        stubList(listOf(emptyList<String>() to null))
+
+        val count = repository.trashAllForDomain("promotions", "exemple.com")
+
+        assertEquals(0, count)
+        verify(exactly = 0) { messages.batchModify(any(), any()) }
+    }
+
+    @Test
+    fun `unsubscribeAndTrashDomain se desabonne une fois puis jette tous les emails trouves du domaine`() = runTest {
+        stubList(listOf(listOf("a", "b") to null))
+        val captured = stubBatchModify()
+        val sample = message(id = "sample", hasUnsub = true, unsubHeader = "<https://exemple.com/unsub>")
+
+        val count = repository.unsubscribeAndTrashDomain("promotions", "exemple.com", sample)
+
+        assertEquals(2, count)
+        verify(exactly = 1) { httpClient.get("https://exemple.com/unsub") }
+        assertEquals(listOf("a", "b"), captured.captured.ids)
+        coVerify { dao.markDomainTrashed("promotions", "exemple.com") }
     }
 }

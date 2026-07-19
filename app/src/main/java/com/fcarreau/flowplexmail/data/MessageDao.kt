@@ -47,6 +47,9 @@ interface MessageDao {
 
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: String, status: String)
+
+    @Query("UPDATE messages SET status = 'trashed' WHERE category = :category AND senderDomain = :domain AND status = 'pending'")
+    suspend fun markDomainTrashed(category: String, domain: String)
 }
 
 data class CategoryCount(
