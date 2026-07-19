@@ -9,6 +9,8 @@ data class MessageEntity(
     val threadId: String,
     val category: String,
     val sender: String,
+    val senderDomain: String,
+    val senderDisplayName: String,
     val subject: String,
     val receivedAtMillis: Long,
     val hasListUnsubscribe: Boolean,

@@ -6,7 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,18 +20,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,14 +51,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import coil.compose.AsyncImage
 import com.fcarreau.flowplexmail.data.AccountPrefs
 import com.fcarreau.flowplexmail.data.CategoryCount
 import com.fcarreau.flowplexmail.data.FlowPlexDatabase
 import com.fcarreau.flowplexmail.data.MessageEntity
+import com.fcarreau.flowplexmail.data.SenderGroupCount
 import com.fcarreau.flowplexmail.gmail.GmailServiceFactory
 import com.fcarreau.flowplexmail.gmail.MessageActionRepository
 import com.fcarreau.flowplexmail.gmail.REQUIRED_SCOPES
@@ -80,7 +99,11 @@ class MainActivity : ComponentActivity() {
     private var profileSummary by mutableStateOf<String?>(null)
     private var errorText by mutableStateOf<String?>(null)
     private var openCategory by mutableStateOf<String?>(null)
+    private var openDomain by mutableStateOf<String?>(null)
     private var processingMessageId by mutableStateOf<String?>(null)
+    private var processingDomain by mutableStateOf<String?>(null)
+    private var isBulkProcessing by mutableStateOf(false)
+    private var selectedIds by mutableStateOf<Set<String>>(emptySet())
     private var pendingAccountName: String? = null
 
     private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -109,23 +132,57 @@ class MainActivity : ComponentActivity() {
                 val categoryCounts by messageDao.observeCategoryCounts().collectAsState(initial = emptyList())
                 val isSyncing by SyncWorker.observeIsSyncing(this).collectAsState(initial = false)
                 val category = openCategory
+                val domain = openDomain
 
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     when {
                         connectedEmail == null -> SignedOutScreen(onSignIn = { signInLauncher.launch(googleSignInClient.signInIntent) })
 
-                        category != null -> {
-                            BackHandler { openCategory = null }
+                        category != null && domain != null -> {
+                            BackHandler { closeDomain() }
                             val meta = CATEGORY_META.getValue(category)
-                            val messages by messageDao.observePendingByCategory(category).collectAsState(initial = emptyList())
+                            val messages by messageDao.observePendingByCategoryAndDomain(category, domain).collectAsState(initial = emptyList())
+                            val title = messages.firstOrNull()?.senderDisplayName ?: domain
                             CategoryReviewScreen(
-                                meta = meta,
+                                title = "${meta.emoji} $title",
                                 messages = messages,
+                                selectedIds = selectedIds,
                                 processingMessageId = processingMessageId,
-                                onBack = { openCategory = null },
+                                isBulkProcessing = isBulkProcessing,
+                                onBack = { closeDomain() },
+                                onToggleSelect = { id ->
+                                    selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
+                                },
+                                onClearSelection = { selectedIds = emptySet() },
                                 onTrash = { performAction(it) { m -> actionRepository().trash(m) } },
                                 onUnsubscribe = { performAction(it) { m -> actionRepository().unsubscribe(m) } },
-                                onIgnore = { performAction(it) { m -> actionRepository().ignore(m) } },
+                                onBulkTrash = {
+                                    val selected = messages.filter { it.id in selectedIds }
+                                    performBulkAction { actionRepository().trashAll(selected) }
+                                },
+                                onBulkUnsubscribe = {
+                                    val selected = messages.filter { it.id in selectedIds }
+                                    performBulkAction { actionRepository().unsubscribeAll(selected) }
+                                },
+                                onBulkIgnore = {
+                                    val selected = messages.filter { it.id in selectedIds }
+                                    performBulkAction { actionRepository().ignoreAll(selected) }
+                                },
+                            )
+                        }
+
+                        category != null -> {
+                            BackHandler { closeCategory() }
+                            val meta = CATEGORY_META.getValue(category)
+                            val groups by messageDao.observeSenderGroups(category).collectAsState(initial = emptyList())
+                            SenderGroupListScreen(
+                                meta = meta,
+                                groups = groups,
+                                processingDomain = processingDomain,
+                                onBack = { closeCategory() },
+                                onOpenDomain = { d -> selectedIds = emptySet(); openDomain = d },
+                                onTrashGroup = { d -> performGroupAction(category, d) { list -> actionRepository().trashAll(list) } },
+                                onUnsubscribeGroup = { d -> performGroupAction(category, d) { list -> actionRepository().unsubscribeAll(list) } },
                             )
                         }
 
@@ -136,7 +193,7 @@ class MainActivity : ComponentActivity() {
                             categoryCounts = categoryCounts,
                             isSyncing = isSyncing,
                             onSyncNow = { SyncWorker.enqueueNow(this) },
-                            onOpenCategory = { openCategory = it },
+                            onOpenCategory = { selectedIds = emptySet(); openCategory = it },
                         )
                     }
                 }
@@ -200,6 +257,49 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 processingMessageId = null
+            }
+        }
+    }
+
+    private fun closeCategory() {
+        openCategory = null
+        openDomain = null
+        selectedIds = emptySet()
+    }
+
+    private fun closeDomain() {
+        openDomain = null
+        selectedIds = emptySet()
+    }
+
+    private fun performBulkAction(block: suspend () -> Unit) {
+        isBulkProcessing = true
+        lifecycleScope.launch {
+            try {
+                block()
+                selectedIds = emptySet()
+            } catch (e: UserRecoverableAuthIOException) {
+                consentLauncher.launch(e.intent)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isBulkProcessing = false
+            }
+        }
+    }
+
+    private fun performGroupAction(category: String, domain: String, block: suspend (List<MessageEntity>) -> Unit) {
+        processingDomain = domain
+        lifecycleScope.launch {
+            try {
+                val messages = messageDao.getPendingByCategoryAndDomain(category, domain)
+                block(messages)
+            } catch (e: UserRecoverableAuthIOException) {
+                consentLauncher.launch(e.intent)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                processingDomain = null
             }
         }
     }
@@ -269,30 +369,30 @@ private fun DashboardScreen(
         ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
                     "✨ Boîte propre en un coup d'œil",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 profileSummary?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(it, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 Text(
                     "$totalPending emails à trier · $totalUnsubscribable désabonnements possibles",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
                 errorText?.let {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                FilledTonalButton(onClick = onSyncNow, enabled = !isSyncing, shape = MaterialTheme.shapes.large) {
+                Button(onClick = onSyncNow, enabled = !isSyncing, shape = MaterialTheme.shapes.large) {
                     if (isSyncing) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
@@ -350,22 +450,210 @@ private fun CategoryCard(meta: CategoryMeta, count: Int, unsubscribable: Int, on
     }
 }
 
+private val ACTION_ICON_SIZE = 18.dp
+
+private fun faviconUrl(domain: String) = "https://www.google.com/s2/favicons?sz=64&domain=$domain"
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryReviewScreen(
+private fun SenderGroupListScreen(
     meta: CategoryMeta,
-    messages: List<MessageEntity>,
-    processingMessageId: String?,
+    groups: List<SenderGroupCount>,
+    processingDomain: String?,
     onBack: () -> Unit,
-    onTrash: (MessageEntity) -> Unit,
-    onUnsubscribe: (MessageEntity) -> Unit,
-    onIgnore: (MessageEntity) -> Unit,
+    onOpenDomain: (String) -> Unit,
+    onTrashGroup: (String) -> Unit,
+    onUnsubscribeGroup: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("←", fontSize = 24.sp) }
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+            }
             Spacer(modifier = Modifier.width(4.dp))
             Text("${meta.emoji} ${meta.label}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
+
+        if (groups.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            SwipeHintLegend()
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (groups.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("🎉", fontSize = 48.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Rien à trier ici, tout est propre !", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(groups, key = { it.senderDomain }) { group ->
+                    SenderGroupRow(
+                        group = group,
+                        isProcessing = processingDomain == group.senderDomain,
+                        onOpen = { onOpenDomain(group.senderDomain) },
+                        onTrash = { onTrashGroup(group.senderDomain) },
+                        onUnsubscribe = { onUnsubscribeGroup(group.senderDomain) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SenderGroupRow(
+    group: SenderGroupCount,
+    isProcessing: Boolean,
+    onOpen: () -> Unit,
+    onTrash: () -> Unit,
+    onUnsubscribe: () -> Unit,
+) {
+    val context = LocalContext.current
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onTrash()
+                    true
+                }
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (group.unsubscribableCount > 0) {
+                        onUnsubscribe()
+                        true
+                    } else {
+                        Toast.makeText(context, "Aucun lien de désabonnement dans ce groupe", Toast.LENGTH_SHORT).show()
+                        false
+                    }
+                }
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        },
+    )
+
+    val cardContent: @Composable () -> Unit = {
+        Card(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AsyncImage(
+                        model = faviconUrl(group.senderDomain),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        group.senderDisplayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    if (isProcessing) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("En cours…", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        Text(
+                            "${group.count} emails · ${group.unsubscribableCount} désabonnements possibles",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (isProcessing) {
+        cardContent()
+    } else {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = group.unsubscribableCount > 0,
+            backgroundContent = { SwipeBackground(dismissState.dismissDirection) },
+            content = { cardContent() },
+        )
+    }
+}
+
+@Composable
+private fun CategoryReviewScreen(
+    title: String,
+    messages: List<MessageEntity>,
+    selectedIds: Set<String>,
+    processingMessageId: String?,
+    isBulkProcessing: Boolean,
+    onBack: () -> Unit,
+    onToggleSelect: (String) -> Unit,
+    onClearSelection: () -> Unit,
+    onTrash: (MessageEntity) -> Unit,
+    onUnsubscribe: (MessageEntity) -> Unit,
+    onBulkTrash: () -> Unit,
+    onBulkUnsubscribe: () -> Unit,
+    onBulkIgnore: () -> Unit,
+) {
+    val selectionMode = selectedIds.isNotEmpty()
+    val selectedUnsubscribableCount = messages.count { it.id in selectedIds && it.hasListUnsubscribe }
+
+    Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = if (selectionMode) onClearSelection else onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            if (selectionMode) {
+                Text("${selectedIds.size} sélectionné(s)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            } else {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+
+        if (selectionMode) {
+            Spacer(modifier = Modifier.height(12.dp))
+            if (isBulkProcessing) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Traitement en cours…", style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionButton(icon = Icons.Filled.Delete, label = "Corbeille", tint = MaterialTheme.colorScheme.error, onClick = onBulkTrash)
+                    if (selectedUnsubscribableCount > 0) {
+                        ActionButton(icon = Icons.Filled.NotificationsOff, label = "Se désabonner", onClick = onBulkUnsubscribe)
+                    }
+                    ActionButton(icon = Icons.Filled.Check, label = "Garder", tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onBulkIgnore)
+                }
+            }
+        }
+
+        if (!selectionMode && messages.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            SwipeHintLegend()
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
 
         if (messages.isEmpty()) {
@@ -383,10 +671,12 @@ private fun CategoryReviewScreen(
                 items(messages, key = { it.id }) { message ->
                     MessageReviewCard(
                         message = message,
+                        isSelected = message.id in selectedIds,
+                        selectionMode = selectionMode,
                         isProcessing = processingMessageId == message.id,
+                        onToggleSelect = { onToggleSelect(message.id) },
                         onTrash = { onTrash(message) },
                         onUnsubscribe = { onUnsubscribe(message) },
-                        onIgnore = { onIgnore(message) },
                     )
                 }
             }
@@ -395,45 +685,149 @@ private fun CategoryReviewScreen(
 }
 
 @Composable
+private fun SwipeHintLegend() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Corbeille", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Se désabonner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(Icons.Filled.NotificationsOff, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.secondary,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = tint),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(ACTION_ICON_SIZE))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun MessageReviewCard(
     message: MessageEntity,
+    isSelected: Boolean,
+    selectionMode: Boolean,
     isProcessing: Boolean,
+    onToggleSelect: () -> Unit,
     onTrash: () -> Unit,
     onUnsubscribe: () -> Unit,
-    onIgnore: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(message.sender, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(message.subject, style = MaterialTheme.typography.bodyMedium, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (isProcessing) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("En cours…", style = MaterialTheme.typography.bodySmall)
+    val context = LocalContext.current
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onTrash()
+                    true
                 }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = onTrash, shape = MaterialTheme.shapes.medium) {
-                        Text("🗑️ Corbeille")
-                    }
+                SwipeToDismissBoxValue.StartToEnd -> {
                     if (message.hasListUnsubscribe) {
-                        OutlinedButton(onClick = onUnsubscribe, shape = MaterialTheme.shapes.medium) {
-                            Text("🚫 Se désabonner")
-                        }
+                        onUnsubscribe()
+                        true
+                    } else {
+                        Toast.makeText(context, "Pas de lien de désabonnement pour cet email", Toast.LENGTH_SHORT).show()
+                        false
                     }
-                    TextButton(onClick = onIgnore) {
-                        Text("Garder")
+                }
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        },
+    )
+
+    val cardContent: @Composable () -> Unit = {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            ),
+        ) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(message.sender, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    if (isProcessing) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("En cours…", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        Text(message.subject, style = MaterialTheme.typography.bodyMedium, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
+    }
+
+    if (selectionMode || isProcessing) {
+        cardContent()
+    } else {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = message.hasListUnsubscribe,
+            backgroundContent = { SwipeBackground(dismissState.dismissDirection) },
+            content = { cardContent() },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
+    val (color, icon, alignment) = when (direction) {
+        SwipeToDismissBoxValue.EndToStart -> Triple(MaterialTheme.colorScheme.error, Icons.Filled.Delete, Alignment.CenterEnd)
+        SwipeToDismissBoxValue.StartToEnd -> Triple(MaterialTheme.colorScheme.secondary, Icons.Filled.NotificationsOff, Alignment.CenterStart)
+        SwipeToDismissBoxValue.Settled -> Triple(Color.Transparent, null, Alignment.Center)
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(MaterialTheme.shapes.medium)
+            .background(color)
+            .padding(horizontal = 24.dp),
+        contentAlignment = alignment,
+    ) {
+        icon?.let { Icon(it, contentDescription = null, tint = Color.White) }
     }
 }

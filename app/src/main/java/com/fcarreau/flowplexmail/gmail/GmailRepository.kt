@@ -35,12 +35,16 @@ class GmailRepository(private val gmail: Gmail, private val dao: MessageDao) {
             .execute()
 
         val headers = message.payload?.headers.orEmpty().associate { it.name to it.value }
+        val fromHeader = headers["From"] ?: "(expéditeur inconnu)"
+        val sender = parseSender(fromHeader)
 
         return MessageEntity(
             id = message.id,
             threadId = message.threadId ?: "",
             category = category,
-            sender = headers["From"] ?: "(expéditeur inconnu)",
+            sender = fromHeader,
+            senderDomain = sender.domain,
+            senderDisplayName = sender.displayName,
             subject = headers["Subject"] ?: "(sans objet)",
             receivedAtMillis = message.internalDate ?: 0L,
             hasListUnsubscribe = headers.containsKey("List-Unsubscribe"),

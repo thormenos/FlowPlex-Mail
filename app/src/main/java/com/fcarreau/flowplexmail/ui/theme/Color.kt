@@ -2,29 +2,55 @@ package com.fcarreau.flowplexmail.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Palette chaleureuse et rassurante — teal/vert profond en primaire, bleu doux en accent.
-val TealPrimary = Color(0xFF2F6F5E)
-val TealPrimaryContainer = Color(0xFFB8E6D4)
-val OnTealPrimaryContainer = Color(0xFF002016)
+// Palette inspirée de flowplex.net (shopify-ai-studio/src/app/globals.css et
+// components/ui/Button.tsx) : vert = action principale/CTA, indigo = action
+// secondaire, rose = destructif, violet = signature de marque (accent tertiaire).
 
-val SoftBlueSecondary = Color(0xFF4C7BF0)
-val SoftBlueContainer = Color(0xFFDCE6FF)
-val OnSoftBlueContainer = Color(0xFF0B1D4A)
+val BrandGreen = Color(0xFF16A34A)
+val OnBrandGreen = Color(0xFFFFFFFF)
+val BrandGreenContainer = Color(0xFFDCFCE7)
+val OnBrandGreenContainer = Color(0xFF14532D)
 
-val WarmBackground = Color(0xFFF6F9F7)
-val WarmSurface = Color(0xFFFFFFFF)
-val WarmSurfaceVariant = Color(0xFFE7F0EC)
+val BrandIndigo = Color(0xFF4F46E5)
+val OnBrandIndigo = Color(0xFFFFFFFF)
+val BrandIndigoContainer = Color(0xFFE0E7FF)
+val OnBrandIndigoContainer = Color(0xFF312E81)
 
-val AlertRed = Color(0xFFD9534F)
+val BrandViolet = Color(0xFF7C3AED)
+val OnBrandViolet = Color(0xFFFFFFFF)
+val BrandVioletContainer = Color(0xFFEDE9FE)
+val OnBrandVioletContainer = Color(0xFF4C1D95)
 
-val DarkTealPrimary = Color(0xFF8FD4BB)
-val DarkTealPrimaryContainer = Color(0xFF12493A)
-val DarkOnTealPrimaryContainer = Color(0xFFB8E6D4)
+val BrandRose = Color(0xFFE11D48)
+val OnBrandRose = Color(0xFFFFFFFF)
 
-val DarkSoftBlueSecondary = Color(0xFFB0C6FF)
-val DarkSoftBlueContainer = Color(0xFF2C3F72)
-val DarkOnSoftBlueContainer = Color(0xFFDCE6FF)
+val SurfaceLight = Color(0xFFFFFFFF)
+val BackgroundLight = Color(0xFFFAFAFA)
+val SurfaceVariantLight = Color(0xFFF1F5F9)
+val OnSurfaceLight = Color(0xFF0F172A)
+val OnSurfaceVariantLight = Color(0xFF64748B)
 
-val DarkBackground = Color(0xFF10241C)
-val DarkSurface = Color(0xFF17281F)
-val DarkSurfaceVariant = Color(0xFF1E332A)
+val DarkGreen = Color(0xFF22C55E)
+val OnDarkGreen = Color(0xFFF0FDF4)
+val DarkGreenContainer = Color(0xFF14532D)
+val OnDarkGreenContainer = Color(0xFFDCFCE7)
+
+val DarkIndigo = Color(0xFF818CF8)
+val OnDarkIndigo = Color(0xFF1E1B4B)
+val DarkIndigoContainer = Color(0xFF1E1B4B)
+val OnDarkIndigoContainer = Color(0xFFE0E7FF)
+
+val DarkViolet = Color(0xFFA78BFA)
+val OnDarkViolet = Color(0xFF2E1065)
+val DarkVioletContainer = Color(0xFF4C1D95)
+val OnDarkVioletContainer = Color(0xFFEDE9FE)
+
+val DarkRose = Color(0xFFFB7185)
+val OnDarkRose = Color(0xFF4C0519)
+
+// Fond quasi noir/bleu nuit exact de flowplex.net (--background: #0a0e1a).
+val BackgroundDark = Color(0xFF0A0E1A)
+val SurfaceDark = Color(0xFF0F172A)
+val SurfaceVariantDark = Color(0xFF1E293B)
+val OnSurfaceDark = Color(0xFFE2E8F0)
+val OnSurfaceVariantDark = Color(0xFF94A3B8)
