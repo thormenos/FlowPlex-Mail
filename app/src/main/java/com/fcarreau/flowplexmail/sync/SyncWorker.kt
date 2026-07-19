@@ -1,6 +1,7 @@
 package com.fcarreau.flowplexmail.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -15,9 +16,13 @@ import com.fcarreau.flowplexmail.data.AccountPrefs
 import com.fcarreau.flowplexmail.data.FlowPlexDatabase
 import com.fcarreau.flowplexmail.gmail.GmailRepository
 import com.fcarreau.flowplexmail.gmail.GmailServiceFactory
+import com.fcarreau.flowplexmail.gmail.MessageActionRepository
+import com.google.api.services.gmail.Gmail
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+private const val TAG = "FlowPlexSync"
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -25,11 +30,23 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val accountName = AccountPrefs.get(applicationContext) ?: return Result.failure()
         return try {
             val gmail = GmailServiceFactory.build(applicationContext, accountName)
-            val dao = FlowPlexDatabase.getInstance(applicationContext).messageDao()
-            GmailRepository(gmail, dao).sync()
+            val database = FlowPlexDatabase.getInstance(applicationContext)
+            GmailRepository(gmail, database.messageDao()).sync()
+            applyTrustRules(gmail, database, accountName)
             Result.success()
         } catch (e: Exception) {
             Result.retry()
+        }
+    }
+
+    /** Nettoie automatiquement les domaines que l'utilisateur a marqués comme "toujours jeter". */
+    private suspend fun applyTrustRules(gmail: Gmail, database: FlowPlexDatabase, accountName: String) {
+        val rules = database.trustRuleDao().getAll()
+        if (rules.isEmpty()) return
+        val actionRepository = MessageActionRepository(gmail, database.messageDao(), accountName)
+        rules.forEach { rule ->
+            runCatching { actionRepository.trashAllForDomain(rule.category, rule.domain) }
+                .onFailure { Log.e(TAG, "Règle auto pour ${rule.domain} a échoué", it) }
         }
     }
 

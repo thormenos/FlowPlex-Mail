@@ -28,4 +28,7 @@
     <string name="category_social">Social</string>
     <string name="category_updates">Updates</string>
     <string name="category_forums">Forums</string>
+    <string name="content_desc_trust_toggle">Automate</string>
+    <string name="trust_rule_enabled_format">%1$s will be trashed automatically from now on</string>
+    <string name="trust_rule_disabled_format">Automation removed for %1$s</string>
 </resources>

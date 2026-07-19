@@ -25,9 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -68,6 +70,7 @@ import com.fcarreau.flowplexmail.data.CategoryCount
 import com.fcarreau.flowplexmail.data.FlowPlexDatabase
 import com.fcarreau.flowplexmail.data.MessageEntity
 import com.fcarreau.flowplexmail.data.SenderGroupCount
+import com.fcarreau.flowplexmail.data.TrustRuleEntity
 import com.fcarreau.flowplexmail.gmail.GmailServiceFactory
 import com.fcarreau.flowplexmail.gmail.MessageActionRepository
 import com.fcarreau.flowplexmail.gmail.REQUIRED_SCOPES
@@ -100,6 +103,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var googleSignInClient: GoogleSignInClient
     private val messageDao by lazy { FlowPlexDatabase.getInstance(this).messageDao() }
+    private val trustRuleDao by lazy { FlowPlexDatabase.getInstance(this).trustRuleDao() }
 
     private var connectedEmail by mutableStateOf<String?>(null)
     private var openCategory by mutableStateOf<String?>(null)
@@ -179,12 +183,27 @@ class MainActivity : ComponentActivity() {
                             BackHandler { closeCategory() }
                             val meta = CATEGORY_META.getValue(category)
                             val groups by messageDao.observeSenderGroups(category).collectAsState(initial = emptyList())
+                            val trustedDomains by trustRuleDao.observeTrustedDomains(category).collectAsState(initial = emptyList())
                             SenderGroupListScreen(
                                 meta = meta,
                                 groups = groups,
+                                trustedDomains = trustedDomains.toSet(),
                                 processingDomain = processingDomain,
                                 onBack = { closeCategory() },
                                 onOpenDomain = { d -> selectedIds = emptySet(); openDomain = d },
+                                onToggleTrust = { d ->
+                                    val isTrusted = trustedDomains.contains(d)
+                                    val displayName = groups.firstOrNull { it.senderDomain == d }?.senderDisplayName ?: d
+                                    lifecycleScope.launch {
+                                        if (isTrusted) {
+                                            trustRuleDao.delete(category, d)
+                                            Toast.makeText(this@MainActivity, getString(R.string.trust_rule_disabled_format, displayName), Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            trustRuleDao.upsert(TrustRuleEntity(category, d, displayName, System.currentTimeMillis()))
+                                            Toast.makeText(this@MainActivity, getString(R.string.trust_rule_enabled_format, displayName), Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
                                 onTrashGroup = { d ->
                                     performDomainAction(d) { actionRepository().trashAllForDomain(category, d) }
                                 },
@@ -468,9 +487,11 @@ private fun faviconUrl(domain: String) = "https://www.google.com/s2/favicons?sz=
 private fun SenderGroupListScreen(
     meta: CategoryMeta,
     groups: List<SenderGroupCount>,
+    trustedDomains: Set<String>,
     processingDomain: String?,
     onBack: () -> Unit,
     onOpenDomain: (String) -> Unit,
+    onToggleTrust: (String) -> Unit,
     onTrashGroup: (String) -> Unit,
     onUnsubscribeGroup: (String) -> Unit,
 ) {
@@ -505,8 +526,10 @@ private fun SenderGroupListScreen(
                 items(groups, key = { it.senderDomain }) { group ->
                     SenderGroupRow(
                         group = group,
+                        isTrusted = group.senderDomain in trustedDomains,
                         isProcessing = processingDomain == group.senderDomain,
                         onOpen = { onOpenDomain(group.senderDomain) },
+                        onToggleTrust = { onToggleTrust(group.senderDomain) },
                         onTrash = { onTrashGroup(group.senderDomain) },
                         onUnsubscribe = { onUnsubscribeGroup(group.senderDomain) },
                     )
@@ -520,8 +543,10 @@ private fun SenderGroupListScreen(
 @Composable
 private fun SenderGroupRow(
     group: SenderGroupCount,
+    isTrusted: Boolean,
     isProcessing: Boolean,
     onOpen: () -> Unit,
+    onToggleTrust: () -> Unit,
     onTrash: () -> Unit,
     onUnsubscribe: () -> Unit,
 ) {
@@ -590,6 +615,13 @@ private fun SenderGroupRow(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                IconButton(onClick = onToggleTrust) {
+                    Icon(
+                        if (isTrusted) Icons.Filled.Bolt else Icons.Outlined.Bolt,
+                        contentDescription = stringResource(R.string.content_desc_trust_toggle),
+                        tint = if (isTrusted) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

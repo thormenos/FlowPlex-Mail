@@ -28,4 +28,7 @@
     <string name="category_social">Réseaux sociaux</string>
     <string name="category_updates">Mises à jour</string>
     <string name="category_forums">Forums</string>
+    <string name="content_desc_trust_toggle">Automatiser</string>
+    <string name="trust_rule_enabled_format">%1$s sera automatiquement jeté à l\'avenir</string>
+    <string name="trust_rule_disabled_format">Automatisation retirée pour %1$s</string>
 </resources>

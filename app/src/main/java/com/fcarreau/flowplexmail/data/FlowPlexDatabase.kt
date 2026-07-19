@@ -5,10 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [MessageEntity::class], version = 4, exportSchema = false)
+@Database(entities = [MessageEntity::class, TrustRuleEntity::class], version = 5, exportSchema = false)
 abstract class FlowPlexDatabase : RoomDatabase() {
 
     abstract fun messageDao(): MessageDao
+    abstract fun trustRuleDao(): TrustRuleDao
 
     companion object {
         @Volatile private var instance: FlowPlexDatabase? = null
