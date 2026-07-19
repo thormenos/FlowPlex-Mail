@@ -13,5 +13,6 @@ data class MessageEntity(
     val receivedAtMillis: Long,
     val hasListUnsubscribe: Boolean,
     val listUnsubscribeHeader: String?,
+    val listUnsubscribePostHeader: String?,
     val status: String = "pending",
 )

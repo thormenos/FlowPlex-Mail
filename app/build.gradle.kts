@@ -39,6 +39,12 @@ android {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -83,4 +89,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Tests unitaires (JVM, avec mocks)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.13.11")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

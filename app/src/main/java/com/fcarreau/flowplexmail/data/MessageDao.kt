@@ -15,6 +15,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY receivedAtMillis DESC")
     fun observePending(): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages WHERE status = 'pending' AND category = :category ORDER BY receivedAtMillis DESC")
+    fun observePendingByCategory(category: String): Flow<List<MessageEntity>>
+
     @Query("SELECT COUNT(*) FROM messages WHERE status = 'pending'")
     fun observePendingCount(): Flow<Int>
 
