@@ -46,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,9 +56,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.StringRes
 import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.fcarreau.flowplexmail.data.AccountPrefs
@@ -83,13 +86,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val CATEGORY_META = mapOf(
-    "promotions" to CategoryMeta("🛍️", "Promotions"),
-    "social" to CategoryMeta("👥", "Réseaux sociaux"),
-    "updates" to CategoryMeta("🔔", "Mises à jour"),
-    "forums" to CategoryMeta("💬", "Forums"),
+    "promotions" to CategoryMeta("🛍️", R.string.category_promotions),
+    "social" to CategoryMeta("👥", R.string.category_social),
+    "updates" to CategoryMeta("🔔", R.string.category_updates),
+    "forums" to CategoryMeta("💬", R.string.category_forums),
 )
 
-private data class CategoryMeta(val emoji: String, val label: String)
+private data class CategoryMeta(val emoji: String, @StringRes val labelRes: Int)
 
 private const val TAG = "FlowPlexMail"
 
@@ -99,8 +102,6 @@ class MainActivity : ComponentActivity() {
     private val messageDao by lazy { FlowPlexDatabase.getInstance(this).messageDao() }
 
     private var connectedEmail by mutableStateOf<String?>(null)
-    private var profileSummary by mutableStateOf<String?>(null)
-    private var errorText by mutableStateOf<String?>(null)
     private var openCategory by mutableStateOf<String?>(null)
     private var openDomain by mutableStateOf<String?>(null)
     private var processingMessageId by mutableStateOf<String?>(null)
@@ -117,7 +118,7 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK) {
             pendingAccountName?.let { fetchProfile(it) }
         } else {
-            errorText = "Consentement refusé, réessayez"
+            Toast.makeText(this, getString(R.string.error_consent_denied), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -192,13 +193,13 @@ class MainActivity : ComponentActivity() {
                                         val sample = messageDao.getPendingByCategoryAndDomain(category, d)
                                             .firstOrNull { it.hasListUnsubscribe }
                                         if (sample == null) {
-                                            Toast.makeText(this@MainActivity, "Aucun lien de désabonnement trouvé", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(this@MainActivity, getString(R.string.error_no_unsubscribe_link), Toast.LENGTH_SHORT).show()
                                         } else {
                                             val result = actionRepository().unsubscribeAndTrashDomain(category, d, sample)
                                             val message = if (result.unsubscribed) {
-                                                "${result.trashedCount} emails supprimés, désabonnement effectué"
+                                                getString(R.string.result_unsubscribed_format, result.trashedCount)
                                             } else {
-                                                "${result.trashedCount} emails supprimés, mais le désabonnement a échoué (serveur injoignable)"
+                                                getString(R.string.result_unsubscribe_failed_format, result.trashedCount)
                                             }
                                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                                         }
@@ -209,8 +210,6 @@ class MainActivity : ComponentActivity() {
 
                         else -> DashboardScreen(
                             email = connectedEmail,
-                            profileSummary = profileSummary,
-                            errorText = errorText,
                             categoryCounts = categoryCounts,
                             isSyncing = isSyncing,
                             onSyncNow = { SyncWorker.enqueueNow(this) },
@@ -229,7 +228,7 @@ class MainActivity : ComponentActivity() {
             val account = task.getResult(ApiException::class.java)
             onAccountReady(account)
         } catch (e: ApiException) {
-            errorText = "Échec de connexion (code ${e.statusCode})"
+            Toast.makeText(this, getString(R.string.error_sign_in_failed_format, e.statusCode), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -243,21 +242,19 @@ class MainActivity : ComponentActivity() {
         SyncWorker.enqueueNow(this)
     }
 
+    /** Valide la connexion et déclenche l'écran de consentement des scopes Gmail/Drive si besoin. */
     private fun fetchProfile(accountName: String) {
         lifecycleScope.launch {
             try {
-                val summary = withContext(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     val gmail = GmailServiceFactory.build(this@MainActivity, accountName)
-                    val profile = gmail.users().getProfile("me").execute()
-                    "${profile.messagesTotal} messages · ${profile.threadsTotal} conversations"
+                    gmail.users().getProfile("me").execute()
                 }
-                profileSummary = summary
-                errorText = null
             } catch (e: UserRecoverableAuthIOException) {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
                 Log.e(TAG, "fetchProfile a échoué", e)
-                errorText = "Erreur: ${e.message}"
+                Toast.makeText(this@MainActivity, getString(R.string.error_generic_format, e.message), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -277,7 +274,7 @@ class MainActivity : ComponentActivity() {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Action sur le message ${message.id} a échoué", e)
-                Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.error_action_failed_format, e.message), Toast.LENGTH_SHORT).show()
             } finally {
                 processingMessageId = null
             }
@@ -305,7 +302,7 @@ class MainActivity : ComponentActivity() {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Action groupée a échoué", e)
-                Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.error_action_failed_format, e.message), Toast.LENGTH_SHORT).show()
             } finally {
                 isBulkProcessing = false
             }
@@ -321,7 +318,7 @@ class MainActivity : ComponentActivity() {
                 consentLauncher.launch(e.intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Action sur le domaine $domain a échoué", e)
-                Toast.makeText(this@MainActivity, "Échec: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.error_action_failed_format, e.message), Toast.LENGTH_SHORT).show()
             } finally {
                 processingDomain = null
             }
@@ -339,14 +336,14 @@ private fun SignedOutScreen(onSignIn: () -> Unit) {
         Text("📬", fontSize = 64.sp)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "FlowPlex.mail",
+            stringResource(R.string.app_name),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Gardez votre boîte Gmail légère et organisée, sans effort.",
+            stringResource(R.string.app_tagline),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -356,7 +353,7 @@ private fun SignedOutScreen(onSignIn: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
         ) {
-            Text("Se connecter avec Google", modifier = Modifier.padding(vertical = 8.dp))
+            Text(stringResource(R.string.sign_in_with_google), modifier = Modifier.padding(vertical = 8.dp))
         }
     }
 }
@@ -364,8 +361,6 @@ private fun SignedOutScreen(onSignIn: () -> Unit) {
 @Composable
 private fun DashboardScreen(
     email: String?,
-    profileSummary: String?,
-    errorText: String?,
     categoryCounts: List<CategoryCount>,
     isSyncing: Boolean,
     onSyncNow: () -> Unit,
@@ -374,12 +369,14 @@ private fun DashboardScreen(
     val totalPending = categoryCounts.sumOf { it.count }
     val totalUnsubscribable = categoryCounts.sumOf { it.unsubscribableCount }
 
+    LaunchedEffect(Unit) { onSyncNow() }
+
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("📬", fontSize = 32.sp)
             Spacer(modifier = Modifier.width(12.dp))
             Column {
-                Text("FlowPlex.mail", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
                     email ?: "",
                     style = MaterialTheme.typography.bodySmall,
@@ -397,39 +394,27 @@ private fun DashboardScreen(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    "✨ Boîte propre en un coup d'œil",
+                    stringResource(R.string.email_summary_format, totalPending, totalUnsubscribable),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                profileSummary?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                if (isSyncing) {
                     Spacer(modifier = Modifier.height(8.dp))
-                }
-                Text(
-                    "$totalPending emails à trier · $totalUnsubscribable désabonnements possibles",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                errorText?.let {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onSyncNow, enabled = !isSyncing, shape = MaterialTheme.shapes.large) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Synchronisation…")
-                    } else {
-                        Text("🔄 Synchroniser maintenant")
+                        Text(
+                            stringResource(R.string.syncing_in_progress),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
                     }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-        Text("Par catégorie — appuyez pour trier", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.category_section_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(8.dp))
 
         val countsByCategory = categoryCounts.associateBy { it.category }
@@ -463,9 +448,9 @@ private fun CategoryCard(meta: CategoryMeta, count: Int, unsubscribable: Int, on
             Text(meta.emoji, fontSize = 28.sp)
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(meta.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(meta.labelRes), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (count == 0) "Rien à signaler" else "$count emails · $unsubscribable désabonnements possibles",
+                    if (count == 0) stringResource(R.string.nothing_to_report) else stringResource(R.string.email_summary_format, count, unsubscribable),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -492,10 +477,10 @@ private fun SenderGroupListScreen(
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_desc_back))
             }
             Spacer(modifier = Modifier.width(4.dp))
-            Text("${meta.emoji} ${meta.label}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("${meta.emoji} ${stringResource(meta.labelRes)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
 
         if (groups.isNotEmpty()) {
@@ -513,7 +498,7 @@ private fun SenderGroupListScreen(
             ) {
                 Text("🎉", fontSize = 48.sp)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Rien à trier ici, tout est propre !", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.nothing_to_sort), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -553,7 +538,7 @@ private fun SenderGroupRow(
                         onUnsubscribe()
                         true
                     } else {
-                        Toast.makeText(context, "Aucun lien de désabonnement dans ce groupe", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.error_no_unsubscribe_link_group), Toast.LENGTH_SHORT).show()
                         false
                     }
                 }
@@ -596,11 +581,11 @@ private fun SenderGroupRow(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("En cours…", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.item_processing), style = MaterialTheme.typography.bodySmall)
                         }
                     } else {
                         Text(
-                            "${group.count} emails · ${group.unsubscribableCount} désabonnements possibles",
+                            stringResource(R.string.email_summary_format, group.count, group.unsubscribableCount),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -644,11 +629,11 @@ private fun CategoryReviewScreen(
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = if (selectionMode) onClearSelection else onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.content_desc_back))
             }
             Spacer(modifier = Modifier.width(4.dp))
             if (selectionMode) {
-                Text("${selectedIds.size} sélectionné(s)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.selected_count_format, selectedIds.size), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             } else {
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
             }
@@ -660,15 +645,15 @@ private fun CategoryReviewScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Traitement en cours…", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.bulk_processing), style = MaterialTheme.typography.bodySmall)
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ActionButton(icon = Icons.Filled.Delete, label = "Corbeille", tint = MaterialTheme.colorScheme.error, onClick = onBulkTrash)
+                    ActionButton(icon = Icons.Filled.Delete, label = stringResource(R.string.action_trash), tint = MaterialTheme.colorScheme.error, onClick = onBulkTrash)
                     if (selectedUnsubscribableCount > 0) {
-                        ActionButton(icon = Icons.Filled.NotificationsOff, label = "Se désabonner", onClick = onBulkUnsubscribe)
+                        ActionButton(icon = Icons.Filled.NotificationsOff, label = stringResource(R.string.action_unsubscribe), onClick = onBulkUnsubscribe)
                     }
-                    ActionButton(icon = Icons.Filled.Check, label = "Garder", tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onBulkIgnore)
+                    ActionButton(icon = Icons.Filled.Check, label = stringResource(R.string.action_keep), tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onBulkIgnore)
                 }
             }
         }
@@ -688,7 +673,7 @@ private fun CategoryReviewScreen(
             ) {
                 Text("🎉", fontSize = 48.sp)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Rien à trier ici, tout est propre !", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.nothing_to_sort), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -729,10 +714,10 @@ private fun SwipeHintLegend() {
             Spacer(modifier = Modifier.width(4.dp))
             Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Corbeille", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.action_trash), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Se désabonner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.action_unsubscribe), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.width(4.dp))
             Icon(Icons.Filled.NotificationsOff, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
             Spacer(modifier = Modifier.width(4.dp))
@@ -788,7 +773,7 @@ private fun MessageReviewCard(
                         onUnsubscribe()
                         true
                     } else {
-                        Toast.makeText(context, "Pas de lien de désabonnement pour cet email", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.error_no_unsubscribe_link_message), Toast.LENGTH_SHORT).show()
                         false
                     }
                 }
@@ -814,7 +799,7 @@ private fun MessageReviewCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.size(ACTION_ICON_SIZE), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("En cours…", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.item_processing), style = MaterialTheme.typography.bodySmall)
                         }
                     } else {
                         Text(message.subject, style = MaterialTheme.typography.bodyMedium, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)

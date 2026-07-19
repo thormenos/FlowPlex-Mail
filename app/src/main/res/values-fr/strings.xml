@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FlowPlex.mail</string>
+    <string name="app_tagline">Gardez votre boîte Gmail légère et organisée, sans effort.</string>
+    <string name="sign_in_with_google">Se connecter avec Google</string>
+    <string name="category_section_title">Par catégorie — appuyez pour trier</string>
+    <string name="nothing_to_report">Rien à signaler</string>
+    <string name="email_summary_format">%1$d emails · %2$d désabonnements possibles</string>
+    <string name="syncing_in_progress">Synchronisation en cours…</string>
+    <string name="nothing_to_sort">Rien à trier ici, tout est propre !</string>
+    <string name="bulk_processing">Traitement en cours…</string>
+    <string name="item_processing">En cours…</string>
+    <string name="action_trash">Corbeille</string>
+    <string name="action_unsubscribe">Se désabonner</string>
+    <string name="action_keep">Garder</string>
+    <string name="selected_count_format">%1$d sélectionné(s)</string>
+    <string name="content_desc_back">Retour</string>
+    <string name="error_consent_denied">Consentement refusé, réessayez</string>
+    <string name="error_sign_in_failed_format">Échec de connexion (code %1$d)</string>
+    <string name="error_generic_format">Erreur : %1$s</string>
+    <string name="error_action_failed_format">Échec : %1$s</string>
+    <string name="error_no_unsubscribe_link">Aucun lien de désabonnement trouvé</string>
+    <string name="result_unsubscribed_format">%1$d emails supprimés, désabonnement effectué</string>
+    <string name="result_unsubscribe_failed_format">%1$d emails supprimés, mais le désabonnement a échoué (serveur injoignable)</string>
+    <string name="error_no_unsubscribe_link_group">Aucun lien de désabonnement dans ce groupe</string>
+    <string name="error_no_unsubscribe_link_message">Pas de lien de désabonnement pour cet email</string>
+    <string name="category_promotions">Promotions</string>
+    <string name="category_social">Réseaux sociaux</string>
+    <string name="category_updates">Mises à jour</string>
+    <string name="category_forums">Forums</string>
+</resources>

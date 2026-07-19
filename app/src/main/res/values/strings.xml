@@ -1,4 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FlowPlex.mail</string>
+    <string name="app_tagline">Keep your Gmail inbox light and organized, effortlessly.</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="category_section_title">By category — tap to sort</string>
+    <string name="nothing_to_report">Nothing to report</string>
+    <string name="email_summary_format">%1$d emails · %2$d possible unsubscribes</string>
+    <string name="syncing_in_progress">Syncing…</string>
+    <string name="nothing_to_sort">Nothing to sort here, all clean!</string>
+    <string name="bulk_processing">Processing…</string>
+    <string name="item_processing">In progress…</string>
+    <string name="action_trash">Trash</string>
+    <string name="action_unsubscribe">Unsubscribe</string>
+    <string name="action_keep">Keep</string>
+    <string name="selected_count_format">%1$d selected</string>
+    <string name="content_desc_back">Back</string>
+    <string name="error_consent_denied">Consent denied, please try again</string>
+    <string name="error_sign_in_failed_format">Sign-in failed (code %1$d)</string>
+    <string name="error_generic_format">Error: %1$s</string>
+    <string name="error_action_failed_format">Failed: %1$s</string>
+    <string name="error_no_unsubscribe_link">No unsubscribe link found</string>
+    <string name="result_unsubscribed_format">%1$d emails deleted, unsubscribed successfully</string>
+    <string name="result_unsubscribe_failed_format">%1$d emails deleted, but unsubscribe failed (server unreachable)</string>
+    <string name="error_no_unsubscribe_link_group">No unsubscribe link in this group</string>
+    <string name="error_no_unsubscribe_link_message">No unsubscribe link for this email</string>
+    <string name="category_promotions">Promotions</string>
+    <string name="category_social">Social</string>
+    <string name="category_updates">Updates</string>
+    <string name="category_forums">Forums</string>
 </resources>
