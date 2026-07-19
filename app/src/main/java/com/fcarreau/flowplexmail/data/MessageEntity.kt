@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class MessageEntity(
     @PrimaryKey val id: String,
     val threadId: String,
+    val category: String,
     val sender: String,
     val subject: String,
     val receivedAtMillis: Long,

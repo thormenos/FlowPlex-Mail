@@ -21,6 +21,19 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages WHERE status = 'pending' AND hasListUnsubscribe = 1")
     fun observeUnsubscribableCount(): Flow<Int>
 
+    @Query(
+        "SELECT category, COUNT(*) as count, " +
+            "SUM(CASE WHEN hasListUnsubscribe THEN 1 ELSE 0 END) as unsubscribableCount " +
+            "FROM messages WHERE status = 'pending' GROUP BY category",
+    )
+    fun observeCategoryCounts(): Flow<List<CategoryCount>>
+
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: String, status: String)
 }
+
+data class CategoryCount(
+    val category: String,
+    val count: Int,
+    val unsubscribableCount: Int,
+)

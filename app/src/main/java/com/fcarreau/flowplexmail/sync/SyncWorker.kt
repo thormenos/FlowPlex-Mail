@@ -8,18 +8,21 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.fcarreau.flowplexmail.data.AccountPrefs
 import com.fcarreau.flowplexmail.gmail.GmailRepository
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val accountName = AccountPrefs.get(applicationContext) ?: return Result.failure()
         return try {
-            GmailRepository(applicationContext).syncPromotions(accountName)
+            GmailRepository(applicationContext).sync(accountName)
             Result.success()
         } catch (e: Exception) {
             Result.retry()
@@ -48,6 +51,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(ONE_TIME_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        }
+
+        fun observeIsSyncing(context: Context): Flow<Boolean> {
+            return WorkManager.getInstance(context)
+                .getWorkInfosForUniqueWorkFlow(ONE_TIME_WORK_NAME)
+                .map { infos -> infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED } }
         }
     }
 }

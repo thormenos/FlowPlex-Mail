@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [MessageEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MessageEntity::class], version = 2, exportSchema = false)
 abstract class FlowPlexDatabase : RoomDatabase() {
 
     abstract fun messageDao(): MessageDao
@@ -19,7 +19,9 @@ abstract class FlowPlexDatabase : RoomDatabase() {
                     context.applicationContext,
                     FlowPlexDatabase::class.java,
                     "flowplex.db",
-                ).build().also { instance = it }
+                )
+                    .fallbackToDestructiveMigration()
+                    .build().also { instance = it }
             }
         }
     }
